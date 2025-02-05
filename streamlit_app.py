@@ -223,7 +223,7 @@ st.markdown("---")
 
 # Step 1: Document Upload
 if st.session_state.current_step == 1:
-    st.header("Step 1: Add Documents")
+    st.header("Step 1: Select your tender / opportunity documents")
     
     uploaded_files = st.file_uploader(
         "Upload your documents",
@@ -235,8 +235,24 @@ if st.session_state.current_step == 1:
     if uploaded_files:
         st.session_state.uploaded_files = uploaded_files
         st.success(f"✅ {len(uploaded_files)} documents uploaded successfully!")
-        next_step()
-        st.rerun()
+        
+        # Add manual compilation button with fun styling
+        st.markdown("""
+        <style>
+        .compile-button {
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        with st.container():
+            st.markdown("### Ready to process your documents?")
+            st.info("Click the button below to start compiling your documents!")
+            
+            if st.button("🚀 Compile and Shred!", key="compile_button", use_container_width=True):
+                next_step()
+                st.rerun()
 
 # Step 2: Document Compilation
 elif st.session_state.current_step == 2:
