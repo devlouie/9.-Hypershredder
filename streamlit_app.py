@@ -1,17 +1,17 @@
 """
-Document Compiler Streamlit Interface
-===================================
+Document Analysis and Tender Response Interface
+============================================
 
-This Streamlit application provides a web-based interface for combining multiple documents
-into a single, well-formatted PDF file and analyzing opportunities using Gemini AI.
+This Streamlit application provides a web-based interface for analyzing tender documents
+and generating contextually aware responses.
 
 Key Features:
 ------------
 1. Multi-file upload support
-2. Progress tracking with visual indicators
-3. Automatic file type detection
-4. Clean PDF output with consistent formatting
-5. Immediate download capability
+2. Document compilation
+3. AI-powered analysis
+4. Tender response generation
+5. Interactive chat capabilities
 
 Supported File Types:
 -------------------
@@ -69,12 +69,15 @@ import streamlit as st
 import os
 import tempfile
 from pathlib import Path
-from document_compiler import DocumentCompiler
-from opportunity_dashboard_processor import OpportunityDashboardProcessor
 import datetime
 import shutil
 from PIL import Image
 import hashlib
+import json
+
+from document_processor import DocumentProcessor
+from opportunity_analyzer import OpportunityAnalyzer
+from tender_response_processor import TenderResponseProcessor
 
 # Initialize session state for authentication
 if 'authenticated' not in st.session_state:
@@ -179,13 +182,19 @@ if 'compiled_pdf' not in st.session_state:
 if 'current_step' not in st.session_state:
     st.session_state.current_step = 1
 if 'opportunity_processor' not in st.session_state:
-    st.session_state.opportunity_processor = OpportunityDashboardProcessor()
+    st.session_state.opportunity_processor = OpportunityAnalyzer()
+if 'tender_processor' not in st.session_state:
+    st.session_state.tender_processor = None
 if 'uploaded_files' not in st.session_state:
     st.session_state.uploaded_files = None
 if 'compilation_complete' not in st.session_state:
     st.session_state.compilation_complete = False
 if 'analysis_complete' not in st.session_state:
     st.session_state.analysis_complete = False
+if 'submitter_context' not in st.session_state:
+    st.session_state.submitter_context = None
+if 'tender_response_complete' not in st.session_state:
+    st.session_state.tender_response_complete = False
 
 # Helper functions for step navigation
 def next_step():
@@ -195,18 +204,20 @@ def prev_step():
     st.session_state.current_step -= 1
 
 # Progress bar and step indicator
-total_steps = 3
+total_steps = 4  # Updated to include new step
 progress = (st.session_state.current_step - 1) / (total_steps - 1)
 st.progress(progress)
 
 # Step titles with visual indicators
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.markdown(f"{'🔵' if st.session_state.current_step == 1 else '✅' if st.session_state.current_step > 1 else '⚪'} **Step 1: Add Documents**")
 with col2:
     st.markdown(f"{'🔵' if st.session_state.current_step == 2 else '✅' if st.session_state.current_step > 2 else '⚪'} **Step 2: Compile PDF**")
 with col3:
     st.markdown(f"{'🔵' if st.session_state.current_step == 3 else '✅' if st.session_state.current_step > 3 else '⚪'} **Step 3: AI Analysis**")
+with col4:
+    st.markdown(f"{'🔵' if st.session_state.current_step == 4 else '✅' if st.session_state.current_step > 4 else '⚪'} **Step 4: Tender Response**")
 
 st.markdown("---")
 
@@ -246,7 +257,7 @@ elif st.session_state.current_step == 2:
                     output_file = f"compiled_docs_{timestamp}.pdf"
                     
                     # Initialize and run the document compiler
-                    processor = DocumentCompiler(temp_dir, output_file)
+                    processor = DocumentProcessor(temp_dir, output_file)
                     processor.process_directory()
                     processor.save_output()
 
@@ -297,11 +308,19 @@ elif st.session_state.current_step == 3:
             # Main analysis area
             if not st.session_state.analysis_complete:
                 with st.spinner("Analyzing documents..."):
-                    summary = st.session_state.opportunity_processor.process_pdf_context(
+                    summary = st.session_state.opportunity_processor.analyze_document(
                         st.session_state.compiled_pdf
                     )
                     st.session_state.opportunity_summary = summary
                     st.session_state.analysis_complete = True
+            
+            # Add button to proceed to tender response at the top
+            if st.session_state.analysis_complete:
+                st.success("✅ Analysis complete!")
+                if st.button("🚀 Generate Tender Response", use_container_width=True):
+                    next_step()
+                    st.rerun()
+                st.markdown("---")
             
             with st.expander("📊 Document Analysis", expanded=True):
                 st.markdown(st.session_state.opportunity_summary)
@@ -387,6 +406,269 @@ elif st.session_state.current_step == 3:
     else:
         st.error("Please complete document compilation in Step 2 first.")
         if st.button("← Back to Compilation"):
+            prev_step()
+            st.rerun()
+
+# Step 4: Tender Response
+elif st.session_state.current_step == 4:
+    st.header("Step 4: Tender Response")
+    
+    if st.session_state.analysis_complete:
+        # Initialize tender processor if not already done
+        if st.session_state.tender_processor is None and st.session_state.opportunity_processor.analysis_context:
+            st.session_state.tender_processor = TenderResponseProcessor(
+                st.session_state.opportunity_processor.analysis_context
+            )
+        
+        # Add pre-amble section
+        st.markdown("""
+        <style>
+        .info-box {
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            background-color: #f8f9fa;
+            border-left: 4px solid #0066cc;
+            margin-bottom: 1.5rem;
+        }
+        .requirement-list {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .requirement-list li {
+            margin-bottom: 0.5rem;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+        .requirement-list li:before {
+            content: "•";
+            color: #0066cc;
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+        }
+        .workflow-step {
+            background-color: #ffffff;
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            border: 1px solid #e6e6e6;
+            margin-bottom: 0.5rem;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Information Box
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.markdown("### ℹ️ Submitter Profile Requirements")
+        st.markdown("""
+        Your submitter profile helps us generate a tailored tender response that highlights your company's strengths 
+        and aligns with the tender requirements. Please provide accurate and detailed information in each section.
+        
+        **Key Requirements:**
+        <ul class="requirement-list">
+        <li><strong>Company Details:</strong> Official registered name and website for credibility verification</li>
+        <li><strong>Core Competencies:</strong> Clear description of your main business activities and expertise</li>
+        <li><strong>Differentiators:</strong> Unique selling points that set you apart from competitors</li>
+        <li><strong>Track Record:</strong> Relevant past projects and performance metrics</li>
+        <li><strong>Compliance:</strong> Current certifications and regulatory compliance status</li>
+        </ul>
+        
+        **Workflow:**
+        <div class="workflow-step">1️⃣ <strong>Load or Create Profile</strong> - Either upload a saved profile or fill out a new one</div>
+        <div class="workflow-step">2️⃣ <strong>Review & Refine</strong> - Ensure all information is accurate and up-to-date</div>
+        <div class="workflow-step">3️⃣ <strong>Save for Later</strong> - Optionally download your profile for future use</div>
+        <div class="workflow-step">4️⃣ <strong>Proceed</strong> - Generate your tailored tender response</div>
+        
+        **Tips for Better Responses:**
+        <ul class="requirement-list">
+        <li>Be specific about your experience in similar projects</li>
+        <li>Quantify achievements where possible (e.g., "Delivered 20% cost savings")</li>
+        <li>Focus on relevant certifications for this tender</li>
+        <li>Highlight unique technological capabilities or methodologies</li>
+        </ul>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Context Collection Form
+        if not st.session_state.submitter_context:
+            st.subheader("📝 Submitter Context")
+            
+            # Add memory card features
+            st.markdown("""
+            <style>
+            .memory-card {
+                padding: 1rem;
+                border-radius: 0.5rem;
+                background-color: #f8f9fa;
+                margin-bottom: 1rem;
+            }
+            .form-card {
+                padding: 1.5rem;
+                border-radius: 0.5rem;
+                background-color: #ffffff;
+                border: 1px solid #e6e6e6;
+                margin-bottom: 1rem;
+            }
+            .action-buttons {
+                display: flex;
+                gap: 1rem;
+                margin-top: 1rem;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Create two columns for side-by-side layout
+            left_col, right_col = st.columns([1, 1])
+            
+            # Memory Card Section in left column
+            with left_col:
+                with st.container():
+                    st.markdown("### 💾 Load Saved Profile")
+                    st.markdown('<div class="memory-card">', unsafe_allow_html=True)
+                    st.markdown("""
+                    **Instructions:**
+                    1. Upload your saved profile (.json)
+                    2. Form will be populated automatically
+                    3. Review and click 'Proceed' when ready
+                    """)
+                    
+                    # Load profile section
+                    uploaded_profile = st.file_uploader(
+                        "Upload a saved profile (.json)",
+                        type=['json'],
+                        key="profile_uploader"
+                    )
+                    
+                    if uploaded_profile:
+                        try:
+                            loaded_context = json.loads(uploaded_profile.getvalue().decode())
+                            # Instead of using immediately, populate the form
+                            st.session_state.form_data = loaded_context
+                            st.success("✅ Profile loaded! Please review the form →")
+                        except Exception as e:
+                            st.error(f"Error loading profile: {str(e)}")
+                    st.markdown('</div>', unsafe_allow_html=True)
+            
+            # New Submitter Form in right column
+            with right_col:
+                st.markdown("### 📋 Submitter Profile")
+                st.markdown('<div class="form-card">', unsafe_allow_html=True)
+                
+                # Initialize form data from session state if exists
+                if 'form_data' not in st.session_state:
+                    st.session_state.form_data = {
+                        'company_name': '',
+                        'company_website': '',
+                        'company_description': '',
+                        'key_differentiators': '',
+                        'past_performance': '',
+                        'certifications': ''
+                    }
+                
+                # Create form with pre-populated values if available
+                new_context = {}
+                new_context['company_name'] = st.text_input("Company Name", value=st.session_state.form_data.get('company_name', ''))
+                new_context['company_website'] = st.text_input("Company Website", value=st.session_state.form_data.get('company_website', ''))
+                new_context['company_description'] = st.text_area(
+                    "Company Description",
+                    value=st.session_state.form_data.get('company_description', ''),
+                    help="Provide a brief description of your company, its core competencies, and relevant experience."
+                )
+                new_context['key_differentiators'] = st.text_area(
+                    "Key Differentiators",
+                    value=st.session_state.form_data.get('key_differentiators', ''),
+                    help="What makes your company unique? List your main competitive advantages."
+                )
+                new_context['past_performance'] = st.text_area(
+                    "Past Performance",
+                    value=st.session_state.form_data.get('past_performance', ''),
+                    help="Describe relevant past projects or similar work experience."
+                )
+                new_context['certifications'] = st.text_area(
+                    "Certifications & Compliance",
+                    value=st.session_state.form_data.get('certifications', ''),
+                    help="List relevant certifications, accreditations, and compliance standards."
+                )
+                
+                # Action buttons in a single row
+                st.markdown("---")
+                col1, col2 = st.columns([1, 1])
+                
+                with col1:
+                    if st.button("💾 Download Profile", use_container_width=True):
+                        if new_context['company_name'] and new_context['company_website'] and new_context['company_description']:
+                            profile_json = json.dumps(new_context, indent=2)
+                            filename = f"{new_context['company_name'].lower().replace(' ', '_')}_profile.json"
+                            st.download_button(
+                                label="📄 Save to Device",
+                                data=profile_json,
+                                file_name=filename,
+                                mime="application/json",
+                                key="download_profile"
+                            )
+                        else:
+                            st.error("Please fill in all required fields before downloading")
+                
+                with col2:
+                    if st.button("✅ Proceed with Profile", use_container_width=True):
+                        if new_context['company_name'] and new_context['company_website'] and new_context['company_description']:
+                            st.session_state.submitter_context = new_context
+                            st.success("Profile accepted! Generating tender response...")
+                            st.rerun()
+                        else:
+                            st.error("Please fill in all required fields (Company Name, Website, and Description)")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+        # Display Tender Response after context is provided
+        if st.session_state.submitter_context and st.session_state.tender_processor:
+            if not st.session_state.tender_response_complete:
+                with st.spinner("Generating tender response..."):
+                    tender_response = st.session_state.tender_processor.generate_response(
+                        context=st.session_state.submitter_context
+                    )
+                    st.session_state.tender_response = tender_response
+                    st.session_state.tender_response_complete = True
+            
+            # Display tender response in an expander
+            with st.expander("📝 Tender Response", expanded=True):
+                st.markdown(st.session_state.tender_response)
+                
+                # Add section-specific response generation
+                st.subheader("Generate Section-Specific Response")
+                sections = [
+                    "1. Executive Overview",
+                    "2. Technical Response",
+                    "3. Implementation Plan",
+                    "4. Team Structure",
+                    "5. Past Performance",
+                    "6. Commercial Terms",
+                    "7. Value Added"
+                ]
+                selected_section = st.selectbox("Select section to regenerate:", sections)
+                if st.button("Regenerate Section"):
+                    with st.spinner(f"Regenerating {selected_section}..."):
+                        section_response = st.session_state.tender_processor.generate_response(
+                            context=st.session_state.submitter_context,
+                            section_name=selected_section
+                        )
+                        st.markdown(section_response)
+            
+            # Add option to edit context
+            if st.button("Edit Submitter Context"):
+                st.session_state.submitter_context = None
+                st.session_state.tender_response_complete = False
+                st.rerun()
+        
+        # Navigation buttons
+        st.markdown("---")
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("← Back"):
+                prev_step()
+                st.rerun()
+    else:
+        st.error("Please complete the AI Analysis in Step 3 first.")
+        if st.button("← Back to Analysis"):
             prev_step()
             st.rerun()
 

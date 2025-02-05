@@ -247,4 +247,248 @@ Begin your analysis:"""
                 
         except Exception as e:
             logger.error(f"Error generating opportunity summary: {e}")
-            return {"error": str(e)} 
+            return {"error": str(e)}
+            
+    def generate_contextual_response(self) -> str:
+        """
+        Generate a contextually aware response based on the compiled PDF and initial analysis.
+        This response follows the structure from the user's first response format.
+        
+        Returns:
+            str: A structured markdown response
+        """
+        try:
+            prompt = """Based on the compiled PDF and the previous analysis, generate a comprehensive response that builds upon our understanding. 
+            Focus on providing actionable insights and strategic recommendations.
+
+Structure your response using this exact markdown format:
+
+# Strategic Overview
+[Provide a strategic assessment of the opportunity, incorporating key findings from the initial analysis]
+
+# Competitive Analysis
+## Our Strengths
+- [Strength 1 with specific relevance to this opportunity]
+- [Strength 2 with specific relevance to this opportunity]
+
+## Market Position
+- [Current market dynamics]
+- [Our positioning]
+- [Key differentiators]
+
+# Resource Requirements
+## Team Composition
+| Role | Required Skills | Availability |
+|------|----------------|--------------|
+| [Role 1] | [Skills] | [Timeline] |
+| [Role 2] | [Skills] | [Timeline] |
+
+## Technical Stack
+- [Required technology 1]: [Purpose/Justification]
+- [Required technology 2]: [Purpose/Justification]
+
+# Implementation Strategy
+1. [Phase 1]: [Description]
+   - Key Activities
+   - Timeline
+   - Dependencies
+2. [Phase 2]: [Description]
+   - Key Activities
+   - Timeline
+   - Dependencies
+
+# Risk Mitigation Updates
+| Risk Category | Identified Risks | Mitigation Strategy | Status |
+|--------------|------------------|---------------------|--------|
+| [Category 1] | [Risks] | [Strategy] | [Status] |
+| [Category 2] | [Risks] | [Strategy] | [Status] |
+
+# Success Metrics
+## Key Performance Indicators
+1. [KPI 1]
+   - Target: [Specific target]
+   - Measurement: [How it will be measured]
+2. [KPI 2]
+   - Target: [Specific target]
+   - Measurement: [How it will be measured]
+
+# Budget Allocation
+## Cost Breakdown
+| Category | Estimated Cost | Notes |
+|----------|---------------|-------|
+| [Category 1] | [Amount] | [Notes] |
+| [Category 2] | [Amount] | [Notes] |
+
+# Recommendations
+1. [Primary Recommendation]
+   - Justification
+   - Expected Impact
+2. [Secondary Recommendation]
+   - Justification
+   - Expected Impact
+
+# Action Items
+## Immediate (Next 2 Weeks)
+- [ ] [Action 1]
+- [ ] [Action 2]
+
+## Short Term (Next 30 Days)
+- [ ] [Action 1]
+- [ ] [Action 2]
+
+## Long Term (Next Quarter)
+- [ ] [Action 1]
+- [ ] [Action 2]
+
+Please ensure:
+1. All recommendations are data-driven and tied to specific findings
+2. Action items are specific, measurable, and time-bound
+3. Risk assessments include both probability and impact
+4. Resource requirements are realistic and well-justified
+5. Success metrics are quantifiable where possible
+
+Begin your analysis:"""
+
+            response = self.model.generate_content([
+                {"text": f"Previous Analysis:\n{self.context}"},
+                {"text": prompt}
+            ])
+            
+            return response.text
+            
+        except Exception as e:
+            logger.error(f"Error generating contextual response: {e}")
+            return f"Error generating contextual response: {str(e)}" 
+
+    def generate_tender_response(self, section_name: Optional[str] = None, context: Optional[Dict] = None) -> str:
+        """
+        Generate a contextually aware response based on the tender document structure.
+        
+        Args:
+            section_name (Optional[str]): Specific section to generate response for.
+                                        If None, generates response for all sections.
+            context (Optional[Dict]): Submitter context information including company details,
+                                    past performance, and differentiators.
+            
+        Returns:
+            str: Structured response following tender document format
+        """
+        try:
+            # Create context prompt from submitter information
+            context_prompt = ""
+            if context:
+                context_prompt = f"""
+Use the following company information to personalize and contextualize the response:
+
+Company Profile:
+- Name: {context.get('company_name', 'N/A')}
+- Website: {context.get('company_website', 'N/A')}
+- Description: {context.get('company_description', 'N/A')}
+
+Key Differentiators:
+{context.get('key_differentiators', 'N/A')}
+
+Past Performance:
+{context.get('past_performance', 'N/A')}
+
+Certifications & Compliance:
+{context.get('certifications', 'N/A')}
+
+Please incorporate this information naturally throughout the response, especially in relevant sections like company introduction, past performance, and technical capabilities.
+"""
+
+            # Define the response structure prompt
+            structure_prompt = """Based on the tender document analysis and provided company context, generate a detailed response that follows the exact structure and requirements outlined in the tender. 
+
+Your response should:
+1. Directly address each requirement point by point
+2. Use the same section numbering and hierarchy as the original tender
+3. Include all mandatory forms and declarations
+4. Follow any specific formatting requirements
+5. Address evaluation criteria explicitly
+6. Incorporate the provided company information naturally
+7. Highlight relevant past performance and certifications
+8. Emphasize key differentiators in appropriate sections
+
+Structure the response as follows:
+
+# 1. Executive Overview
+- Company introduction (using provided company description)
+- Understanding of requirements
+- Value proposition (incorporating key differentiators)
+- Unique capabilities and experience
+
+# 2. Technical Response
+## 2.1 Methodology
+- Approach overview
+- Project phases
+- Quality assurance
+- Risk management
+
+## 2.2 Technical Compliance
+- Point-by-point compliance matrix
+- Technical specifications
+- Standards adherence (referencing relevant certifications)
+- Integration approach
+
+# 3. Implementation Plan
+- Project timeline
+- Resource allocation
+- Milestones
+- Deliverables schedule
+
+# 4. Team Structure
+- Key personnel
+- Roles and responsibilities
+- Relevant experience
+- Certifications and qualifications
+
+# 5. Past Performance
+- Similar projects (from provided past performance)
+- Client references
+- Success metrics
+- Lessons learned
+
+# 6. Commercial Terms
+- Pricing structure
+- Payment schedule
+- Commercial compliance
+- Terms and conditions
+
+# 7. Value Added
+- Innovation aspects (from key differentiators)
+- Additional benefits
+- Future roadmap
+- Strategic alignment
+
+Please ensure:
+1. All responses are evidence-based and reference provided company information
+2. Claims are substantiated with examples from past performance
+3. Language matches the tender's tone
+4. All mandatory requirements are addressed
+5. Evaluation criteria are explicitly met
+6. Company strengths and differentiators are highlighted appropriately
+
+Using the context from the tender document and company information, generate a response that follows this structure:"""
+
+            # If a specific section is requested, modify the prompt
+            if section_name:
+                structure_prompt += f"\n\nPlease generate the response ONLY for the section: {section_name}"
+
+            # Combine prompts and send to Gemini
+            prompts = [
+                {"text": f"Document Analysis:\n{self.context}"}
+            ]
+            
+            if context:
+                prompts.append({"text": f"Company Context:\n{context_prompt}"})
+                
+            prompts.append({"text": structure_prompt})
+            
+            response = self.model.generate_content(prompts)
+
+            return response.text
+
+        except Exception as e:
+            logger.error(f"Error generating tender response: {e}")
+            return f"Error generating tender response: {str(e)}"
