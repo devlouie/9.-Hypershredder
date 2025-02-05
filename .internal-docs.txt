@@ -1,0 +1,54 @@
+I've now added a complete authentication system to the Streamlit application. Here's what I've implemented:
+
+1. User Authentication:
+   - Added two default users:
+     - Username: `admin` / Password: `admin123`
+     - Username: `user` / Password: `user123`
+   - Passwords are stored as SHA-256 hashes for security
+
+2. Login System:
+   - Added a clean, centered login form
+   - Password field is masked
+   - Shows error messages for invalid credentials
+   - Uses session state to maintain authentication status
+
+3. Session Management:
+   - Tracks authentication status in session state
+   - Stores current username in session state
+   - Prevents access to the main application without authentication
+
+4. User Interface:
+   - Added a welcome message showing the current user
+   - Added a logout button in the sidebar
+   - Clean separation between authenticated and non-authenticated views
+
+5. Security Features:
+   - Password hashing using SHA-256
+   - Session state management
+   - Immediate session termination on logout
+
+To use the system:
+
+1. Users can log in with either:
+   - Username: `admin` / Password: `admin123`
+   - Username: `user` / Password: `user123`
+
+2. Once logged in, they'll see:
+   - A welcome message with their username
+   - A logout button in the sidebar
+   - Access to all the document processing features
+
+3. When they click logout:
+   - Their session will be cleared
+   - They'll be returned to the login screen
+   - All application state will be reset
+
+For a production environment, you would want to:
+1. Store user credentials in a secure database
+2. Use environment variables for sensitive data
+3. Implement password policies
+4. Add rate limiting for login attempts
+5. Use more secure password hashing (like bcrypt)
+6. Implement password reset functionality
+
+Would you like me to make any adjustments to this implementation?

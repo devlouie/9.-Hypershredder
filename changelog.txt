@@ -1,2 +1,9 @@
 1.0 | 6 Feb 2025 | Initial release
 - Basic streamlit app working.
+
+1.1 | 6 Feb 2025  
+- Added changelog.txt
+
+1.2 | 6 Feb 2025 
+- Added authentication system
+- Optimised for streamlit cloud hosting for testing
