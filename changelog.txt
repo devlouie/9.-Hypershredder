@@ -1,0 +1,2 @@
+1.0 | 6 Feb 2025 | Initial release
+- Basic streamlit app working.
