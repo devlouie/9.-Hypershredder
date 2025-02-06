@@ -17,3 +17,6 @@
 
 1.5 | 6 Feb 2025
 - Made the chat reference the PDF document
+
+1.6 | 6 Feb 2025
+- Fixed bug of tender response.

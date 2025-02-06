@@ -487,9 +487,9 @@ elif st.session_state.current_step == 4:
     
     if st.session_state.analysis_complete:
         # Initialize tender processor if not already done
-        if st.session_state.tender_processor is None and st.session_state.opportunity_processor.analysis_context:
+        if st.session_state.tender_processor is None and st.session_state.opportunity_summary:
             st.session_state.tender_processor = TenderResponseProcessor(
-                st.session_state.opportunity_processor.analysis_context
+                st.session_state.opportunity_summary
             )
         
         # Add pre-amble section
