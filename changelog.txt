@@ -1,5 +1,5 @@
 1.0 | 6 Feb 2025 | Initial release
-- Basic streamlit app working.
+- Basic streamlit app working
 
 1.1 | 6 Feb 2025  
 - Added changelog.txt
@@ -14,3 +14,6 @@
 
 1.4 | 6 Feb 2025 
 - Made step 1 more user friendly
+
+1.5 | 6 Feb 2025
+- Made the chat reference the PDF document

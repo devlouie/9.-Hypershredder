@@ -24,6 +24,7 @@ from typing import Optional, Dict, List
 import PyPDF2
 import re
 import streamlit as st
+import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,49 +42,96 @@ class OpportunityAnalyzer:
     """
     
     def __init__(self):
-        """Initialize the opportunity analyzer."""
+        """Initialize the opportunity analyzer with enhanced chat capabilities."""
         self._setup_gemini()
-        self.chat_history = []
-        self.analysis_context = ""
-        self.max_text_length = 30000  # Maximum characters to process
+        # Initialize chat session
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+        if "context" not in st.session_state:
+            st.session_state.context = ""
+        if "analysis_complete" not in st.session_state:
+            st.session_state.analysis_complete = False
+        self.max_text_length = 30000
+        self.pdf_info = None
         
     def _setup_gemini(self):
-        """Configure the Gemini AI client."""
+        """Configure the Gemini AI client with enhanced chat capabilities."""
         try:
             if not hasattr(st.secrets.api_keys, 'gemini'):
                 raise ValueError("Gemini API key not found in secrets")
             
             genai.configure(api_key=st.secrets.api_keys.gemini)
-            self.model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
-            self.chat = self.model.start_chat(history=[])
+            # Initialize model with specific configuration
+            self.model = genai.GenerativeModel(
+                model_name='gemini-2.0-flash-thinking-exp-01-21',
+                generation_config={
+                    'temperature': 0.7,
+                    'top_p': 0.8,
+                    'top_k': 40
+                },
+                safety_settings=[
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    }
+                ]
+            )
             logger.info("Gemini AI setup completed successfully")
         except Exception as e:
             logger.error(f"Error setting up Gemini AI: {e}")
             raise
 
-    def analyze_document(self, pdf_content: bytes) -> str:
-        """
-        Analyze the PDF content and extract key insights.
-        
-        Args:
-            pdf_content (bytes): The compiled PDF file content
-            
-        Returns:
-            str: A structured analysis of the opportunity
-        """
-        try:
-            # Save PDF temporarily for processing
-            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
-                temp_pdf.write(pdf_content)
-                temp_pdf_path = temp_pdf.name
+    def _format_chat_message(self, role: str, content: str) -> dict:
+        """Format chat messages consistently."""
+        return {
+            "role": role,
+            "content": content,
+            "timestamp": datetime.datetime.now().isoformat()
+        }
 
-            # Create a Part object for the PDF
+    def _get_chat_context(self) -> str:
+        """Generate a context string from PDF analysis and chat history."""
+        context_parts = []
+        
+        # Add PDF information if available
+        if self.pdf_info:
+            context_parts.append(f"Document Context: {self.pdf_info.get('pages', '?')} pages document")
+        
+        # Add recent chat context (last 5 messages)
+        if st.session_state.chat_history:
+            recent_messages = st.session_state.chat_history[-5:]
+            chat_context = "\n".join([
+                f"{msg['role']}: {msg['content']}" 
+                for msg in recent_messages
+            ])
+            context_parts.append(f"Recent Conversation:\n{chat_context}")
+        
+        # Add analysis context if available
+        if st.session_state.context:
+            context_parts.append(f"Analysis Context:\n{st.session_state.context}")
+        
+        return "\n\n".join(context_parts)
+
+    def analyze_document(self, pdf_content: bytes) -> str:
+        """Analyze the PDF content and extract relevant information."""
+        try:
+            # If analysis is already complete, return the stored analysis
+            if st.session_state.analysis_complete and st.session_state.context:
+                return st.session_state.context
+
+            # Store PDF metadata for UI
+            self.pdf_info = self._get_pdf_metadata(pdf_content)
+            
+            # Create PDF part for Gemini
             pdf_part = {
                 "mime_type": "application/pdf",
                 "data": pdf_content
             }
 
-            # Generate initial analysis
             initial_prompt = """You are an expert business analyst specializing in technical procurement and enterprise sales opportunities. Analyze the provided document and generate a structured analysis that can be directly displayed in Streamlit.
 
 Structure your response in clear markdown sections as follows:
@@ -156,53 +204,111 @@ Please ensure:
 4. Numbers and dates are specific where available
 5. Technical requirements are detailed and clear"""
             
-            # Send both PDF and prompt to Gemini
+            # Send PDF and prompt to Gemini
             response = self.model.generate_content([
                 pdf_part,
                 {"text": initial_prompt}
             ])
             
-            # Store context for chat
-            self.analysis_context = response.text
+            # Store analysis in session state
+            st.session_state.context = response.text
+            st.session_state.analysis_complete = True
             
-            # Clean up temporary file
-            os.unlink(temp_pdf_path)
+            # Add system message about PDF attachment
+            system_msg = self._format_chat_message(
+                "system",
+                f"Document attached ({self.pdf_info.get('pages', '?')} pages, {self.pdf_info.get('size', '?')})"
+            )
+            st.session_state.chat_history.append(system_msg)
             
             return response.text
             
         except Exception as e:
             logger.error(f"Error analyzing document: {e}")
             return f"Error analyzing document: {str(e)}"
-    
+
     def get_chat_response(self, user_message: str) -> str:
-        """
-        Get a response to a user question based on the document analysis.
-        
-        Args:
-            user_message (str): The user's question
-            
-        Returns:
-            str: AI response to the question
-        """
+        """Enhanced chat response generation with context awareness."""
         try:
-            prompt = f"""Based on the following document analysis, please answer the user's question.
-            Be specific and reference relevant parts of the analysis when possible.
+            if not self.pdf_info:
+                raise ValueError("No document is attached to this conversation")
+
+            # Create PDF part for context
+            pdf_part = {
+                "mime_type": "application/pdf",
+                "data": st.session_state.compiled_pdf
+            }
+
+            # Build comprehensive prompt with context
+            chat_context = self._get_chat_context()
+            prompt = f"""As an expert business analyst, provide a response based on the following context:
+
+Context:
+{chat_context}
+
+Current Question: {user_message}
+
+Guidelines for response:
+1. Reference specific sections or pages from the document when relevant
+2. Maintain consistency with previous responses in the conversation
+3. Provide concrete examples or evidence from the document
+4. Be concise but thorough
+5. If information is not found in the document, clearly state that
+
+Please provide your response:"""
+
+            # Generate response using both PDF and context
+            response = self.model.generate_content([
+                pdf_part,
+                {"text": prompt}
+            ])
             
-            Document Analysis:
-            {self.analysis_context}
+            # Format and store messages
+            user_msg = self._format_chat_message("user", user_message)
+            assistant_msg = self._format_chat_message("assistant", response.text)
             
-            User Question: {user_message}
+            # Update session state
+            st.session_state.chat_history.extend([user_msg, assistant_msg])
             
-            Please provide a clear, helpful response:"""
+            # Log interaction for debugging
+            logger.info(f"Chat interaction completed: {len(st.session_state.chat_history)} messages in history")
             
-            response = self.model.generate_content(prompt)
-            self.chat_history.append({"user": user_message, "assistant": response.text})
             return response.text
             
         except Exception as e:
-            logger.error(f"Error getting chat response: {e}")
-            return f"Error generating response: {str(e)}"
-    
+            error_msg = f"Error generating response: {str(e)}"
+            logger.error(error_msg)
+            return error_msg
+
+    def clear_chat_history(self):
+        """Clear the chat history while maintaining document context."""
+        st.session_state.chat_history = []
+        if self.pdf_info:
+            # Add system message about attached document
+            system_msg = self._format_chat_message(
+                "system", 
+                f"Document attached ({self.pdf_info.get('pages', '?')} pages, {self.pdf_info.get('size', '?')})"
+            )
+            st.session_state.chat_history.append(system_msg)
+
+    def get_chat_history(self) -> List[Dict]:
+        """Get formatted chat history for display."""
+        return st.session_state.chat_history
+
+    def get_pdf_status(self) -> Dict:
+        """Get current PDF attachment status for UI display."""
+        if not self.pdf_info:
+            return {
+                "attached": False,
+                "message": "No document attached"
+            }
+        
+        return {
+            "attached": True,
+            "message": f"📎 Document ({self.pdf_info.get('pages', '?')} pages, {self.pdf_info.get('size', '?')})",
+            "timestamp": self.pdf_info.get('timestamp', '')
+        }
+
     def get_opportunity_summary(self) -> dict:
         """
         Generate a structured summary of the opportunity.
@@ -229,7 +335,7 @@ Please ensure:
             """
             
             response = self.model.generate_content([
-                {"text": f"Document Analysis:\n{self.analysis_context}"},
+                {"text": f"Document Analysis:\n{st.session_state.context}"},
                 {"text": prompt}
             ])
             
@@ -245,4 +351,24 @@ Please ensure:
                 
         except Exception as e:
             logger.error(f"Error generating opportunity summary: {e}")
-            return {"error": str(e)} 
+            return {"error": str(e)}
+
+    def _get_pdf_metadata(self, pdf_content: bytes) -> Dict:
+        """Extract basic PDF metadata for display."""
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
+                temp_pdf.write(pdf_content)
+                temp_pdf_path = temp_pdf.name
+                
+                reader = PyPDF2.PdfReader(temp_pdf_path)
+                metadata = {
+                    "pages": len(reader.pages),
+                    "size": f"{len(pdf_content) / 1024:.1f} KB",
+                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                os.unlink(temp_pdf_path)
+                return metadata
+        except Exception as e:
+            logger.error(f"Error extracting PDF metadata: {e}")
+            return {} 

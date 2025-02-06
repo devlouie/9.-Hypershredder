@@ -258,7 +258,7 @@ class DocumentProcessor:
             for idx, table in enumerate(doc.tables, 1):
                 try:
                     df = extract_table_from_docx(table)
-                    if not df.empty:
+                    if isinstance(df, pd.DataFrame) and not df.empty:
                         cleaned_df = clean_table_data(df)
                         table_data = [cleaned_df.columns.tolist()] + cleaned_df.values.tolist()
                         reportlab_table = create_reportlab_table(table_data)

@@ -74,6 +74,7 @@ import shutil
 from PIL import Image
 import hashlib
 import json
+import base64
 
 from document_processor import DocumentProcessor
 from opportunity_analyzer import OpportunityAnalyzer
@@ -338,6 +339,15 @@ elif st.session_state.current_step == 3:
                     st.rerun()
                 st.markdown("---")
             
+            # Add PDF Preview Section
+            st.subheader("📄 Document Preview")
+            with st.expander("Click to expand/collapse preview", expanded=True):
+                base64_pdf = base64.b64encode(st.session_state.compiled_pdf).decode('utf-8')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
             with st.expander("📊 Document Analysis", expanded=True):
                 st.markdown(st.session_state.opportunity_summary)
             
@@ -355,27 +365,61 @@ elif st.session_state.current_step == 3:
             # Enhanced AI Chat Interface
             st.subheader("💬 AI Assistant")
             
+            # Show PDF attachment status
+            if hasattr(st.session_state, 'opportunity_processor'):
+                pdf_status = st.session_state.opportunity_processor.get_pdf_status()
+                if pdf_status["attached"]:
+                    st.info(pdf_status["message"], icon="📎")
+                else:
+                    st.warning(pdf_status["message"], icon="⚠️")
+            
+            # Add chat controls
+            chat_control_col1, chat_control_col2 = st.columns([4, 1])
+            with chat_control_col2:
+                if st.button("🗑️ Clear Chat", use_container_width=True):
+                    st.session_state.opportunity_processor.clear_chat_history()
+                    st.rerun()
+            
             # Chat message container with custom styling
             chat_container = st.container()
             with chat_container:
-                for message in st.session_state.chat_messages:
-                    if message["role"] == "user":
+                for message in st.session_state.opportunity_processor.get_chat_history():
+                    role = message["role"]
+                    content = message["content"]
+                    timestamp = datetime.datetime.fromisoformat(message["timestamp"]).strftime("%H:%M")
+                    
+                    if role == "system":
+                        # System messages (like PDF attachments) get special styling
                         st.markdown(
                             f"""
-                            <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-                                <div style="background-color: #e6f3ff; padding: 0.5rem 1rem; border-radius: 15px; max-width: 80%;">
-                                    <p style="margin: 0;"><strong>You:</strong> {message["content"]}</p>
+                            <div style="display: flex; justify-content: center; margin: 0.5rem 0;">
+                                <div style="background-color: #f0f2f6; padding: 0.5rem 1rem; border-radius: 15px; border: 1px dashed #ccc;">
+                                    <p style="margin: 0; color: #666;">{content}</p>
+                                    <p style="margin: 0; font-size: 0.7em; color: #999; text-align: right;">{timestamp}</p>
                                 </div>
                             </div>
                             """,
                             unsafe_allow_html=True
                         )
-                    else:
+                    elif role == "user":
                         st.markdown(
                             f"""
-                            <div style="display: flex; margin-bottom: 1rem;">
+                            <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+                                <div style="background-color: #e6f3ff; padding: 0.5rem 1rem; border-radius: 15px; max-width: 80%;">
+                                    <p style="margin: 0;"><strong>You:</strong> {content}</p>
+                                    <p style="margin: 0; font-size: 0.7em; color: #999; text-align: right;">{timestamp}</p>
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    else:  # assistant
+                        st.markdown(
+                            f"""
+                            <div style="display: flex; margin-bottom: 0.5rem;">
                                 <div style="background-color: #f0f2f6; padding: 0.5rem 1rem; border-radius: 15px; max-width: 80%;">
-                                    <p style="margin: 0;"><strong>AI:</strong> {message["content"]}</p>
+                                    <p style="margin: 0;"><strong>AI:</strong> {content}</p>
+                                    <p style="margin: 0; font-size: 0.7em; color: #999; text-align: right;">{timestamp}</p>
                                 </div>
                             </div>
                             """,
@@ -385,31 +429,43 @@ elif st.session_state.current_step == 3:
             # Chat input area with a clean design
             st.markdown("---")
             with st.form(key="chat_form", clear_on_submit=True):
-                user_question = st.text_area("Ask me anything about the documents:", height=100, 
-                                           placeholder="Type your question here...")
-                submit_button = st.form_submit_button("Send Message 📤")
+                user_question = st.text_area(
+                    "Ask me anything about the documents:",
+                    height=100,
+                    placeholder="Type your question here... I'll reference the document in my response"
+                )
                 
+                col1, col2 = st.columns([4, 1])
+                with col2:
+                    submit_button = st.form_submit_button("Send 📤", use_container_width=True)
+
                 if submit_button and user_question:
-                    # Add user message to chat history
-                    st.session_state.chat_messages.append({"role": "user", "content": user_question})
-                    
-                    # Get AI response
-                    with st.spinner("Thinking..."):
-                        response = st.session_state.opportunity_processor.get_chat_response(user_question)
-                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
-                    
-                    # Rerun to update chat display
-                    st.rerun()
+                    if not pdf_status["attached"]:
+                        st.error("Please wait for the document to be processed before asking questions.")
+                    else:
+                        with st.spinner("Thinking..."):
+                            response = st.session_state.opportunity_processor.get_chat_response(user_question)
+                        st.rerun()
             
             # Helper text
             with st.expander("💡 Tips for better questions"):
                 st.markdown("""
-                - Ask specific questions about the document content
-                - Request clarification on technical requirements
-                - Inquire about risk assessments and mitigation strategies
-                - Ask for deadline and timeline details
-                - Request budget and financial analysis
+                - Ask specific questions about document sections
+                - Request clarification on technical details
+                - Ask for comparisons between different parts
+                - Request summaries of specific sections
+                - Ask for evidence-based recommendations
                 """)
+            
+            # Add keyboard shortcut hint
+            st.markdown(
+                """
+                <div style="text-align: right; color: #999; font-size: 0.8em; margin-top: 1rem;">
+                    Press Ctrl+Enter to send message
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         # Navigation buttons
         st.markdown("---")
@@ -704,4 +760,40 @@ st.markdown("---")
 st.markdown(
     "Made with ❤️ using Streamlit",
     unsafe_allow_html=True
-) 
+)
+
+def step_three():
+    st.header("Step 3: Review and Download Compiled Document")
+    
+    if 'compiled_pdf_path' in st.session_state and os.path.exists(st.session_state.compiled_pdf_path):
+        st.success("✅ Document has been compiled successfully!")
+        
+        # Create two columns for the download and preview buttons
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            with open(st.session_state.compiled_pdf_path, "rb") as pdf_file:
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_file,
+                    file_name="compiled_document.pdf",
+                    mime="application/pdf"
+                )
+        
+        with col2:
+            if st.button("🔍 Preview PDF"):
+                # Display PDF using st.components.v1.iframe
+                with open(st.session_state.compiled_pdf_path, "rb") as pdf_file:
+                    base64_pdf = base64.b64encode(pdf_file.read()).decode('utf-8')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="700" height="1000" type="application/pdf"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+        
+        # Show the preview section
+        st.subheader("Document Preview")
+        with st.expander("Click to expand/collapse preview", expanded=True):
+            with open(st.session_state.compiled_pdf_path, "rb") as pdf_file:
+                base64_pdf = base64.b64encode(pdf_file.read()).decode('utf-8')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+    else:
+        st.warning("Please complete the previous steps to compile the document first.") 

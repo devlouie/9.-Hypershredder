@@ -23,6 +23,7 @@ from typing import Optional, Dict, List
 import PyPDF2
 import re
 import streamlit as st
+import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,7 +44,8 @@ class OpportunityDashboardProcessor:
         self._setup_gemini()
         self.chat_history = []
         self.context = ""
-        self.max_text_length = 30000  # Maximum characters to process
+        self.max_text_length = 30000
+        self.pdf_info = None  # Store PDF metadata for UI
         
     def _setup_gemini(self):
         """Configure the Gemini AI client with enhanced model selection."""
@@ -52,38 +54,45 @@ class OpportunityDashboardProcessor:
                 raise ValueError("Gemini API key not found in secrets")
             
             genai.configure(api_key=st.secrets.api_keys.gemini)
-            # Use the flash-thinking model for faster responses
             self.model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
-            # Initialize chat
             self.chat = self.model.start_chat(history=[])
             logger.info("Gemini AI setup completed successfully")
         except Exception as e:
             logger.error(f"Error setting up Gemini AI: {e}")
             raise
 
-    def process_pdf_context(self, pdf_content: bytes) -> str:
-        """
-        Process the PDF content and extract relevant information using Gemini's native PDF handling.
-        
-        Args:
-            pdf_content (bytes): The compiled PDF file content
-            
-        Returns:
-            str: A summary of the processed content
-        """
+    def _get_pdf_metadata(self, pdf_content: bytes) -> Dict:
+        """Extract basic PDF metadata for display."""
         try:
-            # Save PDF temporarily for processing
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
                 temp_pdf.write(pdf_content)
                 temp_pdf_path = temp_pdf.name
+                
+                reader = PyPDF2.PdfReader(temp_pdf_path)
+                metadata = {
+                    "pages": len(reader.pages),
+                    "size": f"{len(pdf_content) / 1024:.1f} KB",
+                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                os.unlink(temp_pdf_path)
+                return metadata
+        except Exception as e:
+            logger.error(f"Error extracting PDF metadata: {e}")
+            return {}
 
-            # Create a Part object for the PDF
+    def process_pdf_context(self, pdf_content: bytes) -> str:
+        """Process the PDF content and extract relevant information."""
+        try:
+            # Store PDF metadata for UI
+            self.pdf_info = self._get_pdf_metadata(pdf_content)
+            
+            # Create PDF part for Gemini
             pdf_part = {
                 "mime_type": "application/pdf",
                 "data": pdf_content
             }
 
-            # Generate initial analysis
             initial_prompt = """You are an expert business analyst specializing in technical procurement and enterprise sales opportunities. Analyze the provided document and generate a structured analysis that can be directly displayed in Streamlit.
 
 Structure your response in clear markdown sections as follows:
@@ -158,17 +167,18 @@ Please ensure:
 
 Begin your analysis:"""
             
-            # Send both PDF and prompt to Gemini
+            # Send PDF and prompt to Gemini
             response = self.model.generate_content([
                 pdf_part,
                 {"text": initial_prompt}
             ])
             
-            # Store context for chat
+            # Store context and add system message about PDF attachment
             self.context = response.text
-            
-            # Clean up temporary file
-            os.unlink(temp_pdf_path)
+            self.chat_history.append({
+                "role": "system",
+                "content": f"📎 PDF Document attached ({self.pdf_info.get('pages', '?')} pages, {self.pdf_info.get('size', '?')})"
+            })
             
             return response.text
             
@@ -177,33 +187,57 @@ Begin your analysis:"""
             return f"Error analyzing document: {str(e)}"
     
     def get_chat_response(self, user_message: str) -> str:
-        """
-        Get a response from Gemini based on user input and document context.
-        
-        Args:
-            user_message (str): The user's question or message
-            
-        Returns:
-            str: Gemini's response
-        """
+        """Get a response from Gemini based on user input and document context."""
         try:
-            prompt = f"""Based on the following document analysis, please answer the user's question.
-            Be specific and reference relevant parts of the analysis when possible.
+            if not self.pdf_info:
+                raise ValueError("No PDF document is attached to this conversation")
+
+            # Create PDF part for each interaction
+            pdf_part = {
+                "mime_type": "application/pdf",
+                "data": st.session_state.compiled_pdf
+            }
+
+            prompt = f"""Based on the attached PDF document and the following analysis, please answer the user's question.
+            Be specific and reference relevant parts of both the PDF and analysis when possible.
+            When referencing the PDF, please include page numbers where applicable.
             
             Document Analysis:
             {self.context}
             
             User Question: {user_message}
             
-            Please provide a clear, helpful response:"""
+            Please provide a clear, helpful response that directly references relevant sections from the PDF document:"""
             
-            response = self.model.generate_content(prompt)
-            self.chat_history.append({"user": user_message, "assistant": response.text})
+            # Send PDF and prompt to Gemini
+            response = self.model.generate_content([
+                pdf_part,
+                {"text": prompt}
+            ])
+            
+            # Add messages to chat history
+            self.chat_history.append({"role": "user", "content": user_message})
+            self.chat_history.append({"role": "assistant", "content": response.text})
+            
             return response.text
             
         except Exception as e:
             logger.error(f"Error getting chat response: {e}")
             return f"Error generating response: {str(e)}"
+    
+    def get_pdf_status(self) -> Dict:
+        """Get current PDF attachment status for UI display."""
+        if not self.pdf_info:
+            return {
+                "attached": False,
+                "message": "No PDF document attached"
+            }
+        
+        return {
+            "attached": True,
+            "message": f"📎 PDF Document ({self.pdf_info.get('pages', '?')} pages, {self.pdf_info.get('size', '?')})",
+            "timestamp": self.pdf_info.get('timestamp', '')
+        }
     
     def get_opportunity_summary(self) -> dict:
         """
